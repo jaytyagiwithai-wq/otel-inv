@@ -1,0 +1,70 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+  file_log:
+    include:
+      - /var/log/otel-lab/events.jsonl
+    start_at: beginning
+    operators:
+      - type: json_parser
+        parse_to: attributes
+        timestamp:
+          parse_from: attributes.timestamp
+          layout_type: gotime
+          layout: '2006-01-02T15:04:05.999999999Z07:00'
+        severity:
+          parse_from: attributes.severity
+
+      - type: trace_parser
+        if: 'attributes.trace_id != nil and attributes.span_id != nil'
+        trace_id:
+          parse_from: attributes.trace_id
+        span_id:
+          parse_from: attributes.span_id
+
+      - type: move
+        id: service_resource
+        from: attributes["service.name"]
+        to: resource["service.name"]
+
+      - type: move
+        id: environment_resource
+        from: attributes["deployment.environment.name"]
+        to: resource["deployment.environment.name"]
+exporters:
+  debug:
+    verbosity: detailed
+
+  clickhouse:
+    endpoint: tcp://clickhouse:9000
+    username: otel_lab
+    password: local_telemetry_password
+    database: otel
+    create_schema: true
+    traces_table_name: otel_traces
+    logs_table_name: otel_logs
+
+    ttl: 72h
+    sending_queue:
+      enabled: true
+      num_consumers: 1
+      batch:
+        min_size: 5000
+        flush_timeout: 5s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 30s
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [debug,clickhouse]
+    logs:
+      receivers: [file_log]
+      exporters: [debug, clickhouse]

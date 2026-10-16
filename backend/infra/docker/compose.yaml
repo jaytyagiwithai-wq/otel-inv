@@ -1,0 +1,81 @@
+name: otel-inv
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: orders_db
+      POSTGRES_USER: otel_lab
+      POSTGRES_PASSWORD: local_lab_password
+    ports:
+      - "127.0.0.1:5433:5432" #container port : 5432 acessble on local machine at 5433
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        - CMD
+        -  pg_isready
+        - -h
+        - "127.0.0.1"
+        - -U
+        - otel_lab
+        - -d
+        - orders_db
+
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "127.0.0.1:4318:4318"
+    volumes:
+      - ../otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - type: bind
+        source: ../../logs
+        target: /var/log/otel-lab
+        read_only: true
+        bind:
+          create_host_path: false
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3
+
+    environment:
+      CLICKHOUSE_DB: otel
+      CLICKHOUSE_USER: otel_lab
+      CLICKHOUSE_PASSWORD: local_telemetry_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test:
+        - CMD
+        - clickhouse-client
+        - --user
+        - otel_lab
+        - --password
+        - local_telemetry_password
+        - --query
+        - SELECT 1
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: local_grafana_password
+      GF_PLUGINS_PREINSTALL_SYNC: grafana-clickhouse-datasource@4.22.1
+    ports:
+      - "127.0.0.1:3111:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+volumes:
+  postgres_data:
+  clickhouse_data:
+  grafana_data:
